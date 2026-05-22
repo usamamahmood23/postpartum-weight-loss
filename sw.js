@@ -1,5 +1,5 @@
 /* Mama Reset — Service Worker */
-const VERSION = "mama-reset-v2";
+const VERSION = "mama-reset-v4";
 const CORE_CACHE = VERSION + "-core";
 const RUNTIME_CACHE = VERSION + "-runtime";
 

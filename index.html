@@ -492,6 +492,24 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 .settings-section-head{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-soft);margin:18px 0 10px;padding-bottom:6px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:6px}
 .settings-section-head:first-child{margin-top:4px}
 
+/* ---------- install banner ---------- */
+.install-banner{
+  position:fixed;left:12px;right:12px;bottom:calc(80px + env(safe-area-inset-bottom));z-index:120;
+  background:var(--card);border:1px solid var(--border);border-radius:18px;
+  box-shadow:var(--shadow-lg);padding:12px 12px;display:none;align-items:center;gap:12px;
+  animation:bannerUp .4s ease;
+}
+.install-banner.show{display:flex}
+.install-banner img{width:48px;height:48px;border-radius:13px;flex-shrink:0}
+.install-banner .ib-text{flex:1;min-width:0}
+.install-banner .ib-title{font-weight:700;font-size:.96rem}
+.install-banner .ib-sub{font-size:.78rem;color:var(--text-soft)}
+.install-banner .ib-actions{display:flex;gap:6px;align-items:center;flex-shrink:0}
+@keyframes bannerUp{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:translateY(0)}}
+@media(min-width:1024px){
+  .install-banner{left:auto;right:20px;bottom:20px;max-width:380px}
+}
+
 /* ---------- desktop ---------- */
 @media(min-width:768px){
   .qa-grid{grid-template-columns:repeat(4,1fr)}
@@ -547,6 +565,19 @@ input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;bac
 
 <!-- ===== Toasts ===== -->
 <div class="toast-wrap" id="toastWrap"></div>
+
+<!-- ===== PWA install banner ===== -->
+<div class="install-banner" id="installBanner">
+  <img src="icons/icon-192.png" alt="Mama Reset" />
+  <div class="ib-text">
+    <div class="ib-title">Install Mama Reset</div>
+    <div class="ib-sub" id="ibSub">Add to your home screen — works offline 🌸</div>
+  </div>
+  <div class="ib-actions">
+    <button class="btn btn-sm" id="ibInstall">Install</button>
+    <button class="icon-btn" id="ibClose" title="Not now"><i data-lucide="x"></i></button>
+  </div>
+</div>
 
 <script>
 /* ============================================================
@@ -2532,7 +2563,7 @@ init();
 
 </script>
 
-<!-- ===== PWA: service worker + install prompt ===== -->
+<!-- ===== PWA: service worker + install banner ===== -->
 <script>
 (function(){
   "use strict";
@@ -2546,20 +2577,34 @@ init();
     });
   }
 
-  // Custom install flow (Chrome / Edge / Android).
   var deferredPrompt = null;
-  var installBtn = document.getElementById("installBtn");
+  var installBtn  = document.getElementById("installBtn");
+  var banner      = document.getElementById("installBanner");
+  var ibInstall   = document.getElementById("ibInstall");
+  var ibClose     = document.getElementById("ibClose");
+  var ibSub       = document.getElementById("ibSub");
+  var ua = navigator.userAgent || "";
+  var isIos = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
+  var DISMISS_KEY = "mr_installDismissed";
+  var DISMISS_DAYS = 5;
 
   function isStandalone(){
     return window.matchMedia("(display-mode: standalone)").matches ||
            window.navigator.standalone === true;
   }
-
-  window.addEventListener("beforeinstallprompt", function(e){
-    e.preventDefault();
-    deferredPrompt = e;
-    if(installBtn && !isStandalone()) installBtn.style.display = "grid";
-  });
+  function dismissedRecently(){
+    try{
+      var t = +localStorage.getItem(DISMISS_KEY) || 0;
+      return (Date.now() - t) < DISMISS_DAYS*86400000;
+    }catch(e){ return false; }
+  }
+  function showBanner(){
+    if(!banner || isStandalone() || dismissedRecently()) return;
+    if(isIos && ibSub) ibSub.textContent = "Tap Install for quick Home-Screen steps 🌸";
+    banner.classList.add("show");
+    if(installBtn) installBtn.style.display = "grid";
+  }
+  function hideBanner(){ if(banner) banner.classList.remove("show"); }
 
   function showIosInstructions(){
     if(typeof openModal !== "function") return;
@@ -2572,29 +2617,44 @@ init();
       </ol>`);
   }
 
-  if(installBtn){
-    var ua = navigator.userAgent || "";
-    var isIos = /iPad|iPhone|iPod/.test(ua) && !window.MSStream;
-    // iOS Safari has no beforeinstallprompt — offer manual instructions instead.
-    if(isIos && !isStandalone()) installBtn.style.display = "grid";
+  // Chrome / Edge / Android: fired when the app qualifies for install.
+  window.addEventListener("beforeinstallprompt", function(e){
+    e.preventDefault();
+    deferredPrompt = e;
+    showBanner();
+  });
 
-    installBtn.addEventListener("click", async function(){
-      if(deferredPrompt){
-        deferredPrompt.prompt();
-        try{ await deferredPrompt.userChoice; }catch(e){}
-        deferredPrompt = null;
-        installBtn.style.display = "none";
-      } else if(isIos){
-        showIosInstructions();
-      } else {
-        if(typeof toast === "function") toast("Open your browser menu and choose “Install app” 💕");
-      }
-    });
+  async function doInstall(){
+    if(deferredPrompt){
+      hideBanner();
+      deferredPrompt.prompt();
+      try{ await deferredPrompt.userChoice; }catch(e){}
+      deferredPrompt = null;
+      if(installBtn) installBtn.style.display = "none";
+    } else if(isIos){
+      showIosInstructions();
+    } else {
+      if(typeof toast === "function") toast("Open Chrome's ⋮ menu and tap “Add to Home screen / Install app” 💕");
+    }
+  }
+
+  if(ibInstall) ibInstall.addEventListener("click", doInstall);
+  if(installBtn) installBtn.addEventListener("click", doInstall);
+  if(ibClose) ibClose.addEventListener("click", function(){
+    hideBanner();
+    try{ localStorage.setItem(DISMISS_KEY, String(Date.now())); }catch(e){}
+  });
+
+  // iOS has no beforeinstallprompt — surface the banner ourselves.
+  if(isIos && !isStandalone()){
+    window.addEventListener("load", function(){ setTimeout(showBanner, 1200); });
   }
 
   window.addEventListener("appinstalled", function(){
     deferredPrompt = null;
+    hideBanner();
     if(installBtn) installBtn.style.display = "none";
+    try{ localStorage.removeItem(DISMISS_KEY); }catch(e){}
     if(typeof toast === "function") toast("Installed! Find Mama Reset on your home screen 🌸","pink");
   });
 })();
